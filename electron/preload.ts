@@ -182,5 +182,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   muxWgcRecording: () => ipcRenderer.invoke('mux-wgc-recording'),
   // Cursor visibility control for cursor-free browser capture fallback
   hideOsCursor: () => ipcRenderer.invoke('hide-cursor'),
+  onDeepLink: (callback: (url: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, url: string) => callback(url)
+    ipcRenderer.on('deep-link', listener)
+    return () => ipcRenderer.removeListener('deep-link', listener)
+  },
 })
 
