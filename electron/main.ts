@@ -49,6 +49,16 @@ let tray: Tray | null = null
 let selectedSourceName = ''
 let editorHasUnsavedChanges = false
 let isForceClosing = false
+let deepLinkUrl: string | null = null;
+
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('recordly', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('recordly');
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
 if (!hasSingleInstanceLock) {
@@ -75,6 +85,13 @@ ipcMain.on('set-has-unsaved-changes', (_event, hasChanges: boolean) => {
 
 function createWindow() {
   mainWindow = createHudOverlayWindow()
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (deepLinkUrl) {
+      mainWindow?.webContents.send('deep-link', deepLinkUrl);
+      deepLinkUrl = null;
+    }
+  });
 }
 
 function focusOrCreateMainWindow() {
@@ -283,6 +300,13 @@ function createEditorWindowWrapper() {
   mainWindow = createEditorWindow()
   editorHasUnsavedChanges = false
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (deepLinkUrl) {
+      mainWindow?.webContents.send('deep-link', deepLinkUrl);
+      deepLinkUrl = null;
+    }
+  });
+
   mainWindow.on('closed', () => {
     if (mainWindow?.isDestroyed()) {
       mainWindow = null
@@ -343,8 +367,29 @@ app.on('activate', () => {
   focusOrCreateMainWindow()
 })
 
-app.on('second-instance', () => {
+
+export function handleDeepLink(url: string) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('deep-link', url);
+  } else {
+    deepLinkUrl = url;
+    if (app.isReady()) {
+      focusOrCreateMainWindow();
+    }
+  }
+}
+
+app.on('second-instance', (_event, commandLine, _workingDirectory) => {
   focusOrCreateMainWindow()
+  const url = commandLine.find((arg) => arg.startsWith('recordly://'));
+  if (url) {
+    handleDeepLink(url);
+  }
+})
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
 })
 
 
@@ -360,6 +405,11 @@ app.whenReady().then(async () => {
     const allowed = ['media', 'audioCapture', 'microphone']
     callback(allowed.includes(permission))
   })
+
+  const url = process.argv.find((arg) => arg.startsWith('recordly://'));
+  if (url) {
+    handleDeepLink(url);
+  }
 
   if (process.platform === 'darwin') {
     const micStatus = systemPreferences.getMediaAccessStatus('microphone')
